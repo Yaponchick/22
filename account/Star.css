@@ -1,0 +1,35 @@
+.star-button {
+    padding: 0px;
+    border:none;
+    background: transparent;
+    cursor: pointer;
+    margin:0px;
+    overflow: visible;
+
+    width: 24px;
+    height: 24px;
+}
+
+.star-button:focus{
+    outline: none;
+}
+
+.star-button:focus-visible{
+    outline: 2px solid #005fcc;
+    border-radius: 4px;
+}
+
+.star-icon {
+    width: 100%;
+    height: 100%;
+
+    color: #ddd;
+    fill:none;
+    transition: color 0.3s ease, color 0.3s ease;
+    display: block;
+}
+
+.star-icon.filled {
+    color: red;
+    fill: red;
+}
