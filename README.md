@@ -9,7 +9,7 @@
                         <th>ФИО</th>
                         <th>Дата</th>
                         {questionnaire.questions.map((q) => (
-                            <th key={q.id || q.text} style={{ minWidth: '200px' }}>
+                            <th key={q.id || q.text} style={{ minWidth: '180px' }}>
                                 {q.text}
                             </th>
                         ))}
@@ -17,25 +17,23 @@
                 </thead>
                 <tbody>
                     {usersWithGroupedAttempts.map((user) => {
-                        // Берём последнюю попытку (или можно брать первую, или объединить — зависит от логики)
-                        const latestAttempt = user.attempts.reduce((prev, current) =>
-                            prev.lastAnswerTimestamp > current.lastAnswerTimestamp ? prev : current
-                        );
+                        // У пользователя может быть только одна попытка
+                        const attempt = user.attempts[0]; // Берём первую (и единственную) попытку
+                        if (!attempt) return null;
 
-                        // Создаём мапу ответов по тексту вопроса
+                        // Создаём карту: текст вопроса → ответ
                         const answerMap = new Map<string, string>();
-                        latestAttempt.groupedAnswers.forEach((ag) => {
-                            // Объединяем ответы через запятую (для checkbox)
+                        attempt.groupedAnswers.forEach((ag) => {
                             answerMap.set(ag.questionText, ag.answerTexts.join(', ') || '(нет ответа)');
                         });
 
-                        // Форматируем дату последнего ответа
-                        const lastActivityDate = new Date(user.lastAttemptTime).toLocaleDateString('ru-RU');
+                        // Форматируем дату: день.месяц.год
+                        const activityDate = new Date(attempt.startTime).toLocaleDateString('ru-RU');
 
                         return (
                             <tr key={user.userId}>
                                 <td>{user.userName} {user.isAnonymous ? '(Аноним)' : ''}</td>
-                                <td>{lastActivityDate}</td>
+                                <td>{activityDate}</td>
                                 {questionnaire.questions.map((q) => (
                                     <td key={`${user.userId}-${q.id || q.text}`}>
                                         {answerMap.get(q.text) || '(нет ответа)'}
@@ -48,6 +46,6 @@
             </table>
         </div>
     ) : (
-        <p>Нет данных для отображения.</p>
+        <p className="no-answers">Нет данных для отображения — пока никто не ответил на анкету.</p>
     )}
 </div>
