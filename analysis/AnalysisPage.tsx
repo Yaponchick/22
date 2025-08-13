@@ -2,9 +2,18 @@ import React, { useEffect, useState, useMemo, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import apiClient from '../../api/apiClient';
 import ExcelJS from 'exceljs';
-import "./Analysis.css";
+import "./analysis.css";
+import GraphComponent from "./GraphComponent";
 
-// --- Все импорты и компоненты, связанные с chart.js, react-chartjs-2, html2canvas и Modal, были удалены ---
+import ModalLink from '../../component/modal/modalLink';
+
+import SendIcon from '../../img/SurveyPage/SendIcon.png';
+import DeleteAnketaIcon from '../../img/SurveyPage/DeleteAnketaIcon.png';
+import EyeIcon from '../../img/SurveyPage/EyeIcon.png';
+import StatisticIcon from '../../img/SurveyPage/StatisticIcon.png';
+import DiagrammIcon from '../../img/analysis/DiagrammIcon.png';
+import AnswersIcon from '../../img/analysis/AnswersIcon.png';
+import { current } from "@reduxjs/toolkit";
 
 interface Questionnaire {
     id: string;
@@ -91,6 +100,13 @@ const AnalysisPage: React.FC = () => {
     const [expandedUsers, setExpandedUsers] = useState<Record<string, boolean>>({});
     const [expandedAttempts, setExpandedAttempts] = useState<Record<string, boolean>>({});
 
+    const [createType, setCreateType] = useState('anketa');
+    const [createTypeAnalysis, setCreateTypeAnalysis] = useState('diagram');
+
+    const [isModalOpenLink, setIsModalOpenLink] = useState<boolean>(false);
+    const [searchTerm, setSearchTerm] = useState('');
+
+
     useEffect(() => {
         const fetchQuestionnaire = async () => {
             setLoading(true);
@@ -121,7 +137,7 @@ const AnalysisPage: React.FC = () => {
             answerText: string;
             createdAt: Date;
         }[] = [];
-        
+
         questionnaire.questions.forEach((question) => {
             const questionIdentifier = question.id ?? question.text;
             const questionType = question.type || 'unknown';
@@ -146,23 +162,23 @@ const AnalysisPage: React.FC = () => {
                 });
             }
         });
-        
+
         if (allAnswersRaw.length === 0) return [];
-        
+
         allAnswersRaw.sort((a, b) => {
             if (a.userId < b.userId) return -1;
             if (a.userId > b.userId) return 1;
             return a.createdAt.getTime() - b.createdAt.getTime();
         });
-        
+
         const attempts: Attempt[] = [];
         let currentAttempt: Attempt | null = null;
         let questionsAnsweredInCurrentAttempt = new Set<string>();
-        
+
         allAnswersRaw.forEach((answer) => {
             let startNewAttempt = false;
             const isCheckbox = answer.questionType === 'checkbox';
-            
+
             if (!currentAttempt || answer.userId !== currentAttempt.userId) {
                 startNewAttempt = true;
             } else {
@@ -171,7 +187,7 @@ const AnalysisPage: React.FC = () => {
                     startNewAttempt = true;
                 }
             }
-            
+
             if (startNewAttempt) {
                 currentAttempt = {
                     attemptId: `${answer.userId}-${answer.createdAt.getTime()}-${Math.random().toString(16).slice(2)}`,
@@ -187,11 +203,11 @@ const AnalysisPage: React.FC = () => {
                 attempts.push(currentAttempt);
                 questionsAnsweredInCurrentAttempt = new Set();
             }
-            
+
             if (currentAttempt) {
                 questionsAnsweredInCurrentAttempt.add(answer.questionId);
                 const questionId = answer.questionId;
-                
+
                 if (!currentAttempt.answers[questionId]) {
                     currentAttempt.answers[questionId] = {
                         questionRealId: answer.questionRealId,
@@ -205,34 +221,34 @@ const AnalysisPage: React.FC = () => {
                         currentAttempt.answers[questionId].answerTexts.push(answer.answerText);
                     }
                 }
-                
+
                 currentAttempt.lastAnswerTimestamp = Math.max(
-                    currentAttempt.lastAnswerTimestamp, 
+                    currentAttempt.lastAnswerTimestamp,
                     answer.createdAt.getTime()
                 );
             }
         });
-        
+
         const finalUserAttemptCounts: Record<string, number> = {};
-        
+
         attempts.forEach(attempt => {
             attempt.groupedAnswers = Object.values(attempt.answers)
                 .sort((a, b) => a.firstAnswerTime - b.firstAnswerTime);
-                
+
             if (!finalUserAttemptCounts[attempt.userId]) {
                 finalUserAttemptCounts[attempt.userId] = 0;
             }
             finalUserAttemptCounts[attempt.userId]++;
             attempt.attemptNumber = finalUserAttemptCounts[attempt.userId];
         });
-        
+
         return attempts;
     }, [questionnaire]);
 
     const groupAttemptsByUser = (attemptsToGroup: Attempt[]): UserAttempts[] => {
         if (!attemptsToGroup || attemptsToGroup.length === 0) return [];
         const usersData: Record<string, UserAttempts> = {};
-        
+
         attemptsToGroup.forEach(attempt => {
             if (!usersData[attempt.userId]) {
                 usersData[attempt.userId] = {
@@ -246,21 +262,21 @@ const AnalysisPage: React.FC = () => {
             }
             usersData[attempt.userId].attempts.push(attempt);
             usersData[attempt.userId].firstAttemptTime = Math.min(
-                usersData[attempt.userId].firstAttemptTime, 
+                usersData[attempt.userId].firstAttemptTime,
                 attempt.startTime.getTime()
             );
             usersData[attempt.userId].lastAttemptTime = Math.max(
-                usersData[attempt.userId].lastAttemptTime, 
+                usersData[attempt.userId].lastAttemptTime,
                 attempt.lastAnswerTimestamp
             );
         });
-        
+
         let usersArray = Object.values(usersData);
         usersArray.sort((a, b) => b.lastAttemptTime - a.lastAttemptTime);
-        usersArray.forEach(user => { 
-            user.attempts.sort((a, b) => a.attemptNumber - b.attemptNumber); 
+        usersArray.forEach(user => {
+            user.attempts.sort((a, b) => a.attemptNumber - b.attemptNumber);
         });
-        
+
         return usersArray;
     };
 
@@ -281,16 +297,14 @@ const AnalysisPage: React.FC = () => {
             alert("Нет данных для экспорта.");
             return;
         }
-        
+
         setIsExporting(true);
-        
+
         try {
             const workbook = new ExcelJS.Workbook();
             workbook.creator = 'AnketaApp';
             workbook.created = new Date();
             workbook.modified = new Date();
-
-            // --- Логика создания листа с графиками удалена ---
 
             // Лист с вопросами
             const ws_questions = workbook.addWorksheet("Вопросы и опции");
@@ -300,32 +314,32 @@ const AnalysisPage: React.FC = () => {
                 { header: 'Варианты / Детали шкалы', key: 'options', width: 70 }
             ];
             ws_questions.getRow(1).font = { bold: true };
-            
+
             questionnaire.questions.forEach(q => {
                 let optionsText = "";
                 const choiceTypes = ["radio", "checkbox", "select"];
-                
+
                 if (choiceTypes.includes(q.type)) {
                     optionsText = q.options?.map(o => o.optionText).join(", ") || "Нет опций";
                 } else if (q.type === "scale") {
                     const scaleAnswer = q.answers?.find(a => a.text?.includes('|'));
                     const scaleParts = scaleAnswer?.text?.split('|') || q.text?.split('|');
-                    optionsText = scaleParts?.length >= 3 ? 
-                        `Лево: ${scaleParts[1] || "?"} | Право: ${scaleParts[2] || "?"} | Делений: ${scaleParts[3] || "?"}` : 
+                    optionsText = scaleParts?.length >= 3 ?
+                        `Лево: ${scaleParts[1] || "?"} | Право: ${scaleParts[2] || "?"} | Делений: ${scaleParts[3] || "?"}` :
                         "(Детали шкалы не найдены)";
                 } else if (q.type === "text") {
                     optionsText = "(Открытый ответ)";
                 } else {
                     optionsText = `(Тип: ${q.type})`;
                 }
-                
+
                 ws_questions.addRow({
                     text: q.text,
                     type: translateQuestionType(q.type),
                     options: optionsText
                 });
             });
-            
+
             ws_questions.eachRow({ includeEmpty: false }, function (row) {
                 row.alignment = { vertical: 'top', wrapText: true };
             });
@@ -342,7 +356,7 @@ const AnalysisPage: React.FC = () => {
                 { header: 'Время ответа', key: 'answerTime', width: 20, style: { numFmt: 'dd/mm/yyyy hh:mm:ss' } }
             ];
             ws_open_answers.getRow(1).font = { bold: true };
-            
+
             let hasOpenAnswers = false;
             allAttempts.forEach(attempt => {
                 attempt.groupedAnswers.forEach(answerGroup => {
@@ -362,7 +376,7 @@ const AnalysisPage: React.FC = () => {
                     }
                 });
             });
-            
+
             if (!hasOpenAnswers) ws_open_answers.addRow({ questionText: "Нет открытых ответов." });
             ws_open_answers.eachRow({ includeEmpty: false }, function (row) {
                 row.alignment = { vertical: 'top', wrapText: true };
@@ -379,7 +393,7 @@ const AnalysisPage: React.FC = () => {
                 { header: 'Время Ответа', key: 'answerTime', width: 20, style: { numFmt: 'dd/mm/yyyy hh:mm:ss' } }
             ];
             ws_all_answers.getRow(1).font = { bold: true };
-            
+
             const sortedAttempts = [...allAttempts].sort((a, b) => {
                 const nameA = (a.userName || '').toLowerCase();
                 const nameB = (b.userName || '').toLowerCase();
@@ -387,13 +401,13 @@ const AnalysisPage: React.FC = () => {
                 if (nameA > nameB) return 1;
                 return a.attemptNumber - b.attemptNumber;
             });
-            
+
             const colorPalette = ['FFFFE0B3', 'FFADD8E6', 'FF90EE90', 'FFFFB6C1', 'FFE6E6FA', 'FFFFFACD', 'FFF0E68C', 'FFB0E0E6'];
             const userColorMap = new Map<string, string>();
             let colorIndex = -1;
             let currentUser: string | null = null;
             let hasAnyAnswers = false;
-            
+
             sortedAttempts.forEach((attempt, index) => {
                 if (attempt.userName !== currentUser) {
                     if (index > 0) {
@@ -405,9 +419,9 @@ const AnalysisPage: React.FC = () => {
                         userColorMap.set(currentUser, colorPalette[colorIndex]);
                     }
                 }
-                
+
                 const userColor = userColorMap.get(currentUser);
-                
+
                 attempt.groupedAnswers.forEach(answerGroup => {
                     answerGroup.answerTexts.forEach(text => {
                         hasAnyAnswers = true;
@@ -419,10 +433,10 @@ const AnalysisPage: React.FC = () => {
                             answerText: text,
                             answerTime: new Date(answerGroup.firstAnswerTime)
                         };
-                        
+
                         ws_all_answers.addRow(rowData);
                         const addedRow = ws_all_answers.lastRow;
-                        
+
                         if (addedRow && userColor) {
                             addedRow.eachCell({ includeEmpty: true }, cell => {
                                 cell.fill = {
@@ -435,10 +449,10 @@ const AnalysisPage: React.FC = () => {
                     });
                 });
             });
-            
+
             if (!hasAnyAnswers) ws_all_answers.addRow({ questionText: "Нет ответов для отображения." });
-            
-            ws_all_answers.eachRow({ includeEmpty: true }, function(row, rowNumber) {
+
+            ws_all_answers.eachRow({ includeEmpty: true }, function (row, rowNumber) {
                 if (rowNumber > 1 && Array.isArray(row.values) && (row.values as any[]).some(v => v !== null && v !== undefined && v !== '')) {
                     row.alignment = { vertical: 'top', wrapText: true };
                 }
@@ -483,140 +497,165 @@ const AnalysisPage: React.FC = () => {
     const usersWithGroupedAttempts = groupAttemptsByUser(allAttempts);
     const totalAttemptsCount = allAttempts.length;
 
+    function linkModal() {
+        setIsModalOpenLink(true);
+    }
+
+    const filteredUsers = usersWithGroupedAttempts.filter((user) =>
+        user.userName.toLowerCase().includes(searchTerm.toLowerCase().trim())
+    )
+
     return (
         <div className="analysis-page-vh">
-            <div className="analysis-page">
+            <div className="analysis-page-contaier">
 
-                <h1 className="analysis-title">{questionnaire.title || "Анализ ответов"}</h1>
-                <p className="analysis-description">{questionnaire.description || "Просмотрите ответы пользователей и общую статистику"}</p>
+                {/* Контейнер основного меню */}
+                <div className="ButtonMenuContainer">
+                    <div className="Type-Switcher">
+                        <button className={`Switch-button-create 
+                        ${createType === 'anketa' ? 'active' : ''}`}
+                            onClick={() => setCreateType('anketa')}
+                        >
+                            <img src={EyeIcon} alt="icons-eye-question" className="TickIconEyeStatistics" />
+                            Анкета
+                        </button>
+                        <button className={`Switch-button-create
+                        ${createType === 'analysis' ? 'active' : ''}`}
+                            onClick={() => setCreateType('analysis')}
+                        >
+                            <img src={StatisticIcon} alt="icons-statistic-question" className="TickIconEyeStatistics" />
+                            Статистика {filteredUsers.length}
+                        </button>
+                    </div>
 
-                <div className="global-analysis-action">
-                    {/* --- Кнопки для модальных окон с графиками удалены --- */}
-                    <button 
-                        className="btn btn-export-excel" 
-                        onClick={handleExportToExcel} 
-                        disabled={totalAttemptsCount === 0 || isExporting || loading}
-                    >
-                        {isExporting ? 'Экспорт...' : 'Скачать в Excel'}
+                    <button className="publishButton" type="button" >Опубликовать</button>
+
+                    <button onClick={linkModal} className="ButtonSendIcon" type="button">
+                        <img src={SendIcon} alt="icons-tick-question" className="TickIcon" />
+                    </button>
+                    <button className="ButtonSendIcon" type="button">
+                        <img src={DeleteAnketaIcon} alt="icons-tick-question" className="TickIcon" />
                     </button>
                 </div>
 
-                <div className="detailed-answers-section">
-                    <h2 className="detailed-answers-title">Детальные ответы по пользователям</h2>
-                    <div className="users-container">
-                        {usersWithGroupedAttempts?.length > 0 ? (
-                            usersWithGroupedAttempts.map((user) => {
-                                const isUserExpanded = !!expandedUsers[user.userId];
-                                const lastActivityTime = new Date(user.lastAttemptTime).toLocaleString('ru-RU', { 
-                                    day: '2-digit', 
-                                    month: '2-digit', 
-                                    year: 'numeric', 
-                                    hour: '2-digit', 
-                                    minute: '2-digit' 
-                                });
-                                
-                                return (
-                                    <div key={user.userId} className={`user-block ${isUserExpanded ? "expanded" : ""}`}>
-                                        <div 
-                                            className="user-header" 
-                                            onClick={() => toggleUserAttempts(user.userId)} 
-                                            role="button" 
-                                            tabIndex={0} 
-                                            aria-expanded={isUserExpanded}
-                                        >
-                                            <h3 className="user-name">
-                                                {user.userName} {user.isAnonymous ? '(Аноним)' : ''}
-                                            </h3>
-                                            <span className="toggle-icon" aria-hidden="true"></span>
-                                        </div>
-                                        <div 
-                                            id={`user-attempts-${user.userId}`} 
-                                            className="user-attempts-wrapper" 
-                                            style={{ 
-                                                maxHeight: isUserExpanded ? '3000px' : '0', 
-                                                opacity: isUserExpanded ? 1 : 0, 
-                                                paddingTop: isUserExpanded ? '20px' : '0', 
-                                                paddingBottom: isUserExpanded ? '0px' : '0', 
-                                                transition: 'max-height 0.6s ease-in-out, opacity 0.5s 0.1s ease-out, padding 0.6s ease-in-out' 
-                                            }}
-                                        >
-                                            <div className="user-attempts-list">
-                                                {user.attempts.map((attempt) => {
-                                                    const isAttemptExpanded = !!expandedAttempts[attempt.attemptId];
-                                                    return (
-                                                        <div key={attempt.attemptId} className={`attempt-item ${isAttemptExpanded ? "expanded" : ""}`}>
-                                                            <div 
-                                                                className="attempt-item-header" 
-                                                                onClick={() => toggleAttemptDetails(attempt.attemptId)} 
-                                                                role="button" 
-                                                                tabIndex={0} 
-                                                                aria-expanded={isAttemptExpanded} 
-                                                                aria-controls={`attempt-details-${attempt.attemptId}`}
-                                                            >
-                                                                <span className="attempt-item-title">
-                                                                    Ответ {attempt.attemptNumber} 
-                                                                    <small className="attempt-item-time">
-                                                                        ({attempt.startTime.toLocaleString('ru-RU', { 
-                                                                            day: '2-digit', 
-                                                                            month: '2-digit', 
-                                                                            hour: '2-digit', 
-                                                                            minute: '2-digit' 
-                                                                        })})
-                                                                    </small>
-                                                                </span>
-                                                                <span className="toggle-icon" aria-hidden="true"></span>
-                                                            </div>
-                                                            <div 
-                                                                id={`attempt-details-${attempt.attemptId}`} 
-                                                                className="attempt-answers-wrapper" 
-                                                                style={{ 
-                                                                    maxHeight: isAttemptExpanded ? '2000px' : '0', 
-                                                                    opacity: isAttemptExpanded ? 1 : 0, 
-                                                                    padding: isAttemptExpanded ? '15px 15px 15px 15px' : '0 15px', 
-                                                                    transition: 'max-height 0.5s ease-in-out, opacity 0.4s 0.1s ease-out, padding 0.5s ease-in-out' 
-                                                                }}
-                                                            >
-                                                                <div className="attempt-answers">
-                                                                    {attempt.groupedAnswers.map((answerGroup, idx) => (
-                                                                        <div key={`${answerGroup.questionText}-${idx}`} className="answer-item">
-                                                                            <p className="answer-question">{answerGroup.questionText}</p>
-                                                                            <div className="answer-texts-container">
-                                                                                {answerGroup.answerTexts?.length > 0
-                                                                                    ? (answerGroup.answerTexts.map((text, textIdx) => (
-                                                                                        <p key={textIdx} className="answer-text-item">
-                                                                                            {text || '(пустой ответ)'}
-                                                                                        </p>
-                                                                                    )))
-                                                                                    : (<p className="answer-text-item no-answer">(Нет ответа)</p>)
-                                                                                }
-                                                                            </div>
-                                                                        </div>
-                                                                    ))}
-                                                                </div>
-                                                            </div>
-                                                        </div>
-                                                    );
-                                                })}
-                                            </div>
-                                            <div className="user-footer">
-                                                <small className="user-last-answered">
-                                                    Последняя активность пользователя: {lastActivityTime}
-                                                </small>
-                                            </div>
-                                        </div>
-                                    </div>
-                                );
-                            })
-                        ) : (
-                            <div className="no-answers-block"><p>Пока нет ни одного ответа на эту анкету.</p></div>
-                        )}
-                    </div>
+                {/* Название анкеты */}
+                <div className="analysis-title-container">
+                    <div className="analysis-title"> {questionnaire.title || "Анализ ответов"} </div>
                 </div>
 
-                {/* --- Модальные окна удалены --- */}
 
+
+
+
+
+
+                {/* Форма анализа */}
+                {createType === 'analysis' ? (
+                    <div className="analysis-page">
+
+
+
+
+
+                        <div className="ButtonMenuContainer-inner">
+                            <div className="Type-Switcher-inner">
+                                <button className={`Switch-button-inner 
+                                    ${createTypeAnalysis === 'diagram' ? 'active' : ''}`}
+                                    onClick={() => setCreateTypeAnalysis('diagram')}
+                                >
+                                    <img src={DiagrammIcon} alt="icons-diagram-question" className="InnerMenuIcon" />
+                                    ДИАГРАММЫ
+                                </button>
+                                <button className={`Switch-button-inner
+                                    ${createTypeAnalysis === 'AnalysisAnswers' ? 'active' : ''}`}
+                                    onClick={() => setCreateTypeAnalysis('AnalysisAnswers')}
+                                >
+                                    <img src={AnswersIcon} alt="icons-answers-question" className="InnerMenuIcon" />
+                                    ОТВЕТЫ
+                                </button>
+                            </div>
+
+                            <button className="publishButton-inner" type="button" onClick={handleExportToExcel} >СКАЧАТЬ XLS</button>
+                        </div>
+
+                        {createTypeAnalysis === 'AnalysisAnswers' ? (
+
+                            <div className="detailed-answers-section">
+                                <div className="searchTermInput">
+                                    <input
+                                        type="text"
+                                        value={searchTerm}
+                                        onChange={(e) => setSearchTerm(e.target.value)}
+                                        placeholder="Поиск по имени"
+                                    />
+                                </div>
+
+                                {filteredUsers.length > 0 ? (
+                                    <div className="table-wrapper" style={{ overflowX: 'auto' }}>
+                                        <table className="survey-table">
+                                            <thead>
+                                                <tr>
+                                                    <th style={{ minWidth: '130px' }}>Фамилия И.О.</th>
+                                                    <th style={{ minWidth: '130px' }} >Дата</th>
+                                                    {questionnaire.questions.map((q) => (
+                                                        <th key={q.id || q.text} style={{ minWidth: '180px' }}>
+                                                            {q.text}
+                                                        </th>
+                                                    ))}
+                                                </tr>
+                                            </thead>
+
+                                            <tbody>
+
+                                                {filteredUsers.map((user) => {
+                                                    // Попытки пользователя
+                                                    const attempt = user.attempts[0];
+                                                    if (!attempt) return null;
+
+                                                    // текст вопроса -> ответ
+                                                    const answerMap = new Map<string, string>();
+                                                    attempt.groupedAnswers.forEach((ag) => {
+                                                        answerMap.set(ag.questionText, ag.answerTexts.join(', ') || '(нет ответа)');
+                                                    });
+
+                                                    // Дата ответа пользователя
+                                                    const activityDate = new Date(attempt.startTime).toLocaleString('ru-RU');
+
+                                                    return (
+
+                                                        <tr key={user.userId}>
+                                                            <td>{user.userName}</td>
+                                                            <td>{activityDate}</td>
+
+                                                            {questionnaire.questions.map((q) => (
+                                                                <td key={`${user.userId}-${q.id || q.text}`}>
+                                                                    {answerMap.get(q.text) || '(нет ответа)'}
+                                                                </td>
+                                                            ))}
+                                                        </tr>
+                                                    );
+                                                })}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                ) : (
+                                    <p className="no-answers">Нет данных для отображения — пока никто не ответил на анкету.</p>
+                                )}
+                            </div>
+                        ) : (
+                            <GraphComponent questions={questionnaire.questions} />
+
+                        )}
+
+
+                    </div>
+                ) : (
+                    123
+                )
+                }
             </div>
         </div>
+
     );
 };
 
