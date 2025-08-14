@@ -327,7 +327,73 @@ const AccountPage: FC = () => {
                                             </td>
                                         </tr>
                                     ))}
-                                </tbody>
+                                </tbody
+                                
+                                
+                                
+                                
+                                
+                                
+                                
+                                
+                                
+                                
+                                
+                                
+                                
+                                
+                                
+                                
+                                const AnalysisPage: React.FC = () => {
+  // ... существующий код
+  const [isDeleting, setIsDeleting] = useState(false);
+
+  const handleDelete = async () => {
+    if (!id) return;
+    
+    const confirmDelete = window.confirm('Вы уверены, что хотите удалить эту анкету?');
+    if (!confirmDelete) return;
+
+    setIsDeleting(true);
+    try {
+      await apiClient.delete(`/questionnaire/${id}`);
+      navigate('/account'); // Перенаправляем после удаления
+    } catch (error) {
+      console.error('Ошибка при удалении:', error);
+      alert('Не удалось удалить анкету');
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
+  return (
+    <div className="analysis-page-vh">
+      <div className="analysis-page-contaier">
+        <ButtonMenuContainer
+          createType={createType}
+          setCreateType={setCreateType}
+          isLoading={isLoading}
+          surveyLink={surveyLink}
+          onShareClick={() => setIsModalOpenLink(true)}
+          onDeleteClick={handleDelete}
+          isDeleting={isDeleting}
+          width={'1200px'}
+        />
+        {/* ... остальной код */}
+      </div>
+    </div>
+  );
+};
+
+
+
+
+
+
+
+                                
+                                
+                                >
                             </table>
                         </div>
                     )}
