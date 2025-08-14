@@ -1,269 +1,10 @@
-import { Questionnaire, Question, Answer, Attempt, AnswerGroup, UserAttempts } from "./types"; // типы нужно вынести в отдельный файл
-import apiClient from '../../api/apiClient';
-import ExcelJS from 'exceljs';
-
-export const questionTypeTranslations: Record<string, string> = {
-    radio: 'Один из списка',
-    checkbox: 'Несколько из списка',
-    select: 'Выпадающий список',
-    scale: 'Шкала',
-    text: 'Текстовый ответ',
-    default: 'Неизвестный тип'
-};
-
-export const translateQuestionType = (type: string): string => {
-    return questionTypeTranslations[type] || questionTypeTranslations.default;
-};
-
-export const sanitizeFilename = (name: string): string => {
-    return name.replace(/[/\\?%*:|"<>]/g, '-').substring(0, 100);
-};
-
-export const fetchQuestionnaireData = async (id: string) => {
-    try {
-        const response = await apiClient.get(`/questionnaire/${id}`);
-        return response.data;
-    } catch (error) {
-        console.error("Ошибка загрузки анкеты:", error);
-        throw new Error("Не удалось загрузить данные анкеты");
-    }
-};
-
-export const processQuestionnaireAnswers = (questionnaire: Questionnaire): Attempt[] => {
-    if (!questionnaire?.questions) return [];
-    
-    let allAnswersRaw: {
-        userId: string;
-        userName: string;
-        isAnonymous: boolean;
-        questionId: string;
-        questionRealId?: string;
-        questionText: string;
-        questionType: string;
-        answerText: string;
-        createdAt: Date;
-    }[] = [];
-
-    questionnaire.questions.forEach((question) => {
-        const questionIdentifier = question.id ?? question.text;
-        const questionType = question.type || 'unknown';
-        
-        if (question.answers?.length) {
-            question.answers.forEach((answer) => {
-                let currentAnswerText = answer.selectedOptionText ?? answer.text;
-                if (currentAnswerText === null || currentAnswerText === undefined || String(currentAnswerText).trim() === '') {
-                    return;
-                }
-                
-                currentAnswerText = String(currentAnswerText);
-                allAnswersRaw.push({
-                    userId: answer.userId || `anonymous_${Date.now()}_${Math.random()}`,
-                    userName: answer.isAnonymous ? "Анонимный пользователь" : (answer.userName || "Пользователь"),
-                    isAnonymous: !!answer.isAnonymous,
-                    questionId: questionIdentifier,
-                    questionRealId: question.id,
-                    questionText: question.text,
-                    questionType: questionType,
-                    answerText: currentAnswerText,
-                    createdAt: new Date(answer.createdAt),
-                });
-            });
-        }
-    });
-
-    if (allAnswersRaw.length === 0) return [];
-
-    allAnswersRaw.sort((a, b) => {
-        if (a.userId < b.userId) return -1;
-        if (a.userId > b.userId) return 1;
-        return a.createdAt.getTime() - b.createdAt.getTime();
-    });
-
-    const attempts: Attempt[] = [];
-    let currentAttempt: Attempt | null = null;
-    let questionsAnsweredInCurrentAttempt = new Set<string>();
-
-    allAnswersRaw.forEach((answer) => {
-        let startNewAttempt = false;
-        const isCheckbox = answer.questionType === 'checkbox';
-
-        if (!currentAttempt || answer.userId !== currentAttempt.userId) {
-            startNewAttempt = true;
-        } else {
-            const alreadyAnswered = questionsAnsweredInCurrentAttempt.has(answer.questionId);
-            if (alreadyAnswered && !isCheckbox) {
-                startNewAttempt = true;
-            }
-        }
-
-        if (startNewAttempt) {
-            currentAttempt = {
-                attemptId: `${answer.userId}-${answer.createdAt.getTime()}-${Math.random().toString(16).slice(2)}`,
-                userId: answer.userId,
-                userName: answer.userName,
-                isAnonymous: answer.isAnonymous,
-                startTime: answer.createdAt,
-                answers: {},
-                groupedAnswers: [],
-                lastAnswerTimestamp: answer.createdAt.getTime(),
-                attemptNumber: 0
-            };
-            attempts.push(currentAttempt);
-            questionsAnsweredInCurrentAttempt = new Set();
-        }
-
-        if (currentAttempt) {
-            questionsAnsweredInCurrentAttempt.add(answer.questionId);
-            const questionId = answer.questionId;
-
-            if (!currentAttempt.answers[questionId]) {
-                currentAttempt.answers[questionId] = {
-                    questionRealId: answer.questionRealId,
-                    questionText: answer.questionText,
-                    questionType: answer.questionType,
-                    answerTexts: [answer.answerText],
-                    firstAnswerTime: answer.createdAt.getTime()
-                };
-            } else {
-                if (!currentAttempt.answers[questionId].answerTexts.includes(answer.answerText)) {
-                    currentAttempt.answers[questionId].answerTexts.push(answer.answerText);
-                }
-            }
-
-            currentAttempt.lastAnswerTimestamp = Math.max(
-                currentAttempt.lastAnswerTimestamp,
-                answer.createdAt.getTime()
-            );
-        }
-    });
-
-    const finalUserAttemptCounts: Record<string, number> = {};
-
-    attempts.forEach(attempt => {
-        attempt.groupedAnswers = Object.values(attempt.answers)
-            .sort((a, b) => a.firstAnswerTime - b.firstAnswerTime);
-
-        if (!finalUserAttemptCounts[attempt.userId]) {
-            finalUserAttemptCounts[attempt.userId] = 0;
-        }
-        finalUserAttemptCounts[attempt.userId]++;
-        attempt.attemptNumber = finalUserAttemptCounts[attempt.userId];
-    });
-
-    return attempts;
-};
-
-export const groupAttemptsByUser = (attemptsToGroup: Attempt[]): UserAttempts[] => {
-    if (!attemptsToGroup || attemptsToGroup.length === 0) return [];
-    const usersData: Record<string, UserAttempts> = {};
-
-    attemptsToGroup.forEach(attempt => {
-        if (!usersData[attempt.userId]) {
-            usersData[attempt.userId] = {
-                userId: attempt.userId,
-                userName: attempt.userName,
-                isAnonymous: attempt.isAnonymous,
-                attempts: [],
-                firstAttemptTime: attempt.startTime.getTime(),
-                lastAttemptTime: attempt.lastAnswerTimestamp
-            };
-        }
-        usersData[attempt.userId].attempts.push(attempt);
-        usersData[attempt.userId].firstAttemptTime = Math.min(
-            usersData[attempt.userId].firstAttemptTime,
-            attempt.startTime.getTime()
-        );
-        usersData[attempt.userId].lastAttemptTime = Math.max(
-            usersData[attempt.userId].lastAttemptTime,
-            attempt.lastAnswerTimestamp
-        );
-    });
-
-    let usersArray = Object.values(usersData);
-    usersArray.sort((a, b) => b.lastAttemptTime - a.lastAttemptTime);
-    usersArray.forEach(user => {
-        user.attempts.sort((a, b) => a.attemptNumber - b.attemptNumber);
-    });
-
-    return usersArray;
-};
-
-export const exportToExcel = async (questionnaire: Questionnaire, allAttempts: Attempt[], id: string) => {
-    if (!questionnaire || !allAttempts || allAttempts.length === 0) {
-        throw new Error("Нет данных для экспорта");
-    }
-
-    const workbook = new ExcelJS.Workbook();
-    workbook.creator = 'AnketaApp';
-    workbook.created = new Date();
-    workbook.modified = new Date();
-
-    // Лист с вопросами
-    const ws_questions = workbook.addWorksheet("Вопросы и опции");
-    ws_questions.columns = [
-        { header: 'Текст вопроса', key: 'text', width: 60 },
-        { header: 'Тип вопроса', key: 'type', width: 20 },
-        { header: 'Варианты / Детали шкалы', key: 'options', width: 70 }
-    ];
-    ws_questions.getRow(1).font = { bold: true };
-
-    questionnaire.questions.forEach(q => {
-        let optionsText = "";
-        const choiceTypes = ["radio", "checkbox", "select"];
-
-        if (choiceTypes.includes(q.type)) {
-            optionsText = q.options?.map(o => o.optionText).join(", ") || "Нет опций";
-        } else if (q.type === "scale") {
-            const scaleAnswer = q.answers?.find(a => a.text?.includes('|'));
-            const scaleParts = scaleAnswer?.text?.split('|') || q.text?.split('|');
-            optionsText = scaleParts?.length >= 3 ?
-                `Лево: ${scaleParts[1] || "?"} | Право: ${scaleParts[2] || "?"} | Делений: ${scaleParts[3] || "?"}` :
-                "(Детали шкалы не найдены)";
-        } else if (q.type === "text") {
-            optionsText = "(Открытый ответ)";
-        } else {
-            optionsText = `(Тип: ${q.type})`;
-        }
-
-        ws_questions.addRow({
-            text: q.text,
-            type: translateQuestionType(q.type),
-            options: optionsText
-        });
-    });
-
-    ws_questions.eachRow({ includeEmpty: false }, function (row) {
-        row.alignment = { vertical: 'top', wrapText: true };
-    });
-
-    // ... остальная логика экспорта в Excel (аналогично вашему коду)
-
-    const buffer = await workbook.xlsx.writeBuffer();
-    const filename = sanitizeFilename(`Анализ_Данных_${questionnaire.title || `Анкета_${id}`}.xlsx`);
-    const blob = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
-
-    return { blob, filename };
-};
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 import React, { useEffect, useState, useMemo } from "react";
+import { useLocation } from 'react-router-dom';
 import { useParams, useNavigate } from "react-router-dom";
-import { 
-    fetchQuestionnaireData, 
-    processQuestionnaireAnswers, 
-    groupAttemptsByUser, 
+import {
+    fetchQuestionnaireData,
+    processQuestionnaireAnswers,
+    groupAttemptsByUser,
     exportToExcel,
     translateQuestionType,
     questionTypeTranslations
@@ -291,6 +32,8 @@ const LoadingSpinner: React.FC = () => {
 
 const AnalysisPage: React.FC = () => {
     const { id } = useParams<{ id: string }>();
+    const location = useLocation();
+    const [surveyLink, setSurveyLink] = useState <string |null>( location.state?.link || null);
     const navigate = useNavigate();
 
     const [questionnaire, setQuestionnaire] = useState<Questionnaire | null>(null);
@@ -322,6 +65,7 @@ const AnalysisPage: React.FC = () => {
         loadData();
     }, [id, navigate]);
 
+
     const allAttempts = useMemo<Attempt[]>(() => {
         if (!questionnaire) return [];
         return processQuestionnaireAnswers(questionnaire);
@@ -348,7 +92,7 @@ const AnalysisPage: React.FC = () => {
         setIsExporting(true);
         try {
             const { blob, filename } = await exportToExcel(questionnaire, allAttempts, id!);
-            
+
             const url = URL.createObjectURL(blob);
             const link = document.createElement('a');
             link.href = url;
@@ -382,7 +126,9 @@ const AnalysisPage: React.FC = () => {
             </div>
         );
     }
-
+    function linkModal() {
+        setIsModalOpenLink(true);
+    }
     return (
         <div className="analysis-page-vh">
             <div className="analysis-page-contaier">
@@ -390,8 +136,8 @@ const AnalysisPage: React.FC = () => {
                     createType={createType}
                     setCreateType={setCreateType}
                     isLoading={true}
-                    publishedLink={publishedLink}
-                    linkModal={() => setIsModalOpenLink(true)}
+                    publishedLink={surveyLink}
+                    linkModal={linkModal}
                     width={'1200px'}
                 />
 
@@ -481,67 +227,15 @@ const AnalysisPage: React.FC = () => {
                     </div>
                 ) : null}
             </div>
+            {isModalOpenLink && (
+                <ModalLink
+                    isOpen={isModalOpenLink}
+                    onClose={() => setIsModalOpenLink(false)}
+                    link={publishedLink || surveyLink || 'https://ссылкиНет.ru'}
+                />
+            )}
         </div>
     );
 };
 
 export default AnalysisPage;
-
-
-
-
-
-
-export interface Questionnaire {
-    id: string;
-    title: string;
-    description?: string;
-    questions: Question[];
-}
-
-export interface Question {
-    id?: string;
-    text: string;
-    type: string;
-    options?: { optionText: string }[];
-    answers?: Answer[];
-}
-
-export interface Answer {
-    userId?: string;
-    userName?: string;
-    isAnonymous?: boolean;
-    selectedOptionText?: string;
-    text?: string;
-    createdAt: string;
-}
-
-export interface Attempt {
-    attemptId: string;
-    userId: string;
-    userName: string;
-    isAnonymous: boolean;
-    startTime: Date;
-    answers: Record<string, AnswerGroup>;
-    groupedAnswers: AnswerGroup[];
-    lastAnswerTimestamp: number;
-    attemptNumber: number;
-}
-
-export interface AnswerGroup {
-    questionRealId?: string;
-    questionText: string;
-    questionType: string;
-    answerTexts: string[];
-    firstAnswerTime: number;
-}
-
-export interface UserAttempts {
-    userId: string;
-    userName: string;
-    isAnonymous: boolean;
-    attempts: Attempt[];
-    firstAttemptTime: number;
-    lastAttemptTime: number;
-}
-
