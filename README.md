@@ -1,204 +1,250 @@
-import React, { useEffect, useRef } from 'react';
-import { Chart, registerables, ChartType } from 'chart.js';
+import React, { FC, ChangeEvent, useState, useRef, useEffect } from 'react';
+import { Link, useLocation } from 'react-router-dom';
 
-Chart.register(...registerables);
+import { useSurvey } from './useSurvey';
 
-interface GraphProps {
-  questions: {
-    id?: string;
-    text: string;
-    type: string;
-    options?: { optionText: string }[];
-    answers?: {
-      userId?: string;
-      selectedOptionText?: string;
-      text?: string;
-      createdAt: string;
-    }[];
-  }[];
-}
+import QuestionComponent, { QuestionType } from './Question';
+import './createStyle.css';
+import '../../component/ButtonMenu/ButtonMenuComponent'
 
-const GraphComponent: React.FC<GraphProps> = ({ questions }) => {
-  const chartRefs = useRef<(HTMLCanvasElement | null)[]>([]);
-  const chartInstances = useRef<Chart[]>([]);
+import ModalLink from '../../component/modal/modalLink';
 
-  // Фильтрация и подготовка данных
-  const chartData = questions
-    .filter(q => ['radio', 'checkbox', 'select', 'scale'].includes(q.type) && q.answers?.length)
-    .map(question => {
-      const answerCounts = question.answers!
-        .map(a => a.selectedOptionText || a.text)
-        .filter((answer): answer is string => !!answer)
-        .reduce((acc, answer) => {
-          acc[answer] = (acc[answer] || 0) + 1;
-          return acc;
-        }, {} as Record<string, number>);
+import OpenQuest from '../../img/SurveyPage/OpenQuestion.png';
+import CloseQuest from '../../img/SurveyPage/CloseQuestion.png';
+import MultiQuest from '../../img/SurveyPage/MultiQuestion.png';
+import ShkalaQuest from '../../img/SurveyPage/ShkalaQuestion.png';
+import InfoOutlined from '../../img/SurveyPage/InfoOutlined.png';
+import TickIcon from '../../img/SurveyPage/TickIcon.png';
+import SendIcon from '../../img/SurveyPage/SendIcon.png';
+import DeleteAnketaIcon from '../../img/SurveyPage/DeleteAnketaIcon.png';
+import EyeIcon from '../../img/SurveyPage/EyeIcon.png';
+import StatisticIcon from '../../img/SurveyPage/StatisticIcon.png';
 
-      return {
-        question,
-        labels: Object.keys(answerCounts),
-        data: Object.values(answerCounts),
-        type: (question.type === 'checkbox' ? 'bar' : 'pie') as ChartType
-      };
-    });
+const SurveyPage: FC = () => {
+    const {
+        questions,
+        title,
+        setTitle,
+        error,
+        questionErrors,
+        deleteError,
+        isLoading,
+        dropdownsOpen,
+        setDropdownsOpen,
+        handleSaveClick,
+        handleDragStart,
+        handleDragOver,
+        handleDrop,
+        handleDragEnd,
+        handleDragLeave,
+        handleAddFirstQuestion,
+        addNewQuestion,
+        deleteQuestion,
+        moveQuestion,
+        setQuestionRef,
+        handleOptionSelect,
+        addAnswer,
+        deleteAnswer,
+        handleAnswerChange,
+        handleQuestionTextChange,
+        handleScaleChange,
+        isModalOpen,
+        confirmSave,
+        cancelSave,
+    } = useSurvey();
 
-  useEffect(() => {
-    // Очистка предыдущих графиков
-    chartInstances.current.forEach(chart => chart.destroy());
-    chartInstances.current = [];
+    interface LocationState {
+        link: string;
+    }
 
-    // Создание новых графиков
-    chartData.forEach(({ question, labels, data, type }, index) => {
-      const canvas = chartRefs.current[index];
-      if (!canvas) return;
+    const notDeletedQuestions = questions.filter(q => !q.isDeleting);
+    const [createType, setCreateType] = useState('anketa');
+    const [isModalOpenLink, setIsModalOpenLink] = useState<boolean>(false);
+    const location = useLocation();
+    const stateLink = (location.state as LocationState | null)?.link;
+    const [publishedLink, setPublishedLink] = useState<string | null>(null);
 
-      const ctx = canvas.getContext('2d');
-      if (!ctx) return;
+    // Получаем ID последнего вопроса
+    const lastQuestionId = notDeletedQuestions.length > 0
+        ? notDeletedQuestions[notDeletedQuestions.length - 1].uniqueId
+        : 'placeholder';
 
-      const total = data.reduce((sum, val) => sum + val, 0);
-      const backgroundColors = [
-        '#FF6384', '#36A2EB', '#FFCE56', '#4BC0C0', '#9966FF',
-        '#FF9F40', '#8AC24A', '#EA80FC', '#00ACC1', '#FF5722'
-      ].slice(0, labels.length);
+    function linkModal() {
+        setIsModalOpenLink(true);
+    }
 
-      const chart = new Chart(ctx, {
-        type,
-        data: {
-          labels,
-          datasets: [{
-            data,
-            backgroundColor: backgroundColors,
-            borderWidth: 1
-          }]
-        },
-        options: {
-          responsive: true,
-          maintainAspectRatio: false,
-          plugins: {
-            title: {
-              display: true,
-              text: question.text,
-              font: {
-                size: window.innerWidth < 768 ? 12 : 14
-              }
-            },
-            tooltip: {
-              callbacks: {
-                label: (context) => {
-                  const value = context.raw as number;
-                  const percent = Math.round((value / total) * 100);
-                  return `${context.label}: ${value} (${percent}%)`;
-                }
-              }
-            },
-            legend: {
-              position: 'bottom' as const,
-              labels: {
-                font: {
-                  size: window.innerWidth < 768 ? 10 : 12
-                }
-              }
-            }
-          },
-          scales: type === 'bar' ? {
-            y: {
-              beginAtZero: true,
-              ticks: {
-                font: {
-                  size: window.innerWidth < 768 ? 10 : 12
-                }
-              }
-            },
-            x: {
-              ticks: {
-                font: {
-                  size: window.innerWidth < 768 ? 10 : 12
-                }
-              }
-            }
-          } : undefined
-        }
-      });
+    return (
+        <div className="survey-page-vh">
+            
+            <div className="survey-page"    >
+                <div className="ButtonMenuContainer" style={{maxWidth: '800px'}}>
+                    <div className="Type-Switcher">
+                        <button className={`Switch-button-create 
+                        ${createType === 'anketa' ? 'active' : ''}`}
+                            onClick={() => setCreateType('anketa')}
+                        >
+                            <img src={EyeIcon} alt="icons-eye-question" className="TickIconEyeStatistics" />
+                            Анкета
+                        </button>
+                        <button disabled className={`Switch-button-create
+                        ${createType === 'analysis' ? 'active' : ''}`}
+                            onClick={() => setCreateType('analysis')}
+                        >
+                            <img src={StatisticIcon} alt="icons-statistic-question" className="TickIconEyeStatistics" />
+                            Статистика
+                        </button>
+                    </div>
 
-      chartInstances.current.push(chart);
-    });
+                    <button onClick={handleSaveClick} className="publishButton" type="button" disabled={isLoading}>
+                        {isLoading ? 'Публикация...' : 'Опубликовать'}
+                    </button>
+                    
+                    <button disabled={!publishedLink} onClick={linkModal} className="ButtonSendIcon" type="button">
+                        <img src={SendIcon} alt="icons-tick-question" className="TickIcon" />
+                    </button>
+                    <button disabled onClick={handleSaveClick} className="ButtonSendIcon" type="button">
+                        <img src={DeleteAnketaIcon} alt="icons-tick-question" className="TickIcon" />
+                    </button>
+                </div>
 
-    // Очистка при размонтировании
-    return () => {
-      chartInstances.current.forEach(chart => chart.destroy());
-    };
-  }, [questions]);
+                <form >
+                    {createType === 'anketa' && (
+                        <div className="survey-title">
+                            <input
+                                type="text"
+                                placeholder="Название анкеты"
+                                value={title}
+                                onChange={(e: ChangeEvent<HTMLInputElement>) => setTitle(e.target.value)}
+                                maxLength={250}
+                                aria-label="Название анкеты"
+                            />
+                            {error && <p className="error-message-create">{error}</p>}
+                        </div>
+                    )}
 
-  if (!chartData.length) {
-    return <div className="no-data-message">Нет данных для отображения графиков</div>;
-  }
+                    {createType === 'anketa' && questions.map((question) => (
+                        <QuestionComponent
+                            key={question.uniqueId}
+                            question={question}
+                            questionErrors={questionErrors}
+                            deleteError={deleteError}
+                            dropdownsOpen={dropdownsOpen}
+                            onDropdownToggle={(id) => setDropdownsOpen(prev => ({ ...prev, [id]: !prev[id] }))}
+                            onOptionSelect={handleOptionSelect}
+                            onTextChange={handleQuestionTextChange}
+                            onAnswerChange={handleAnswerChange}
+                            onAddAnswer={addAnswer}
+                            onDeleteAnswer={deleteAnswer}
+                            onScaleChange={handleScaleChange}
+                            onAddNew={addNewQuestion}
+                            onMove={moveQuestion}
+                            onDelete={deleteQuestion}
+                            onDragStart={handleDragStart}
+                            onDragOver={handleDragOver}
+                            onDrop={handleDrop}
+                            onDragEnd={handleDragEnd}
+                            onDragLeave={handleDragLeave}
+                            setQuestionRef={setQuestionRef}
+                            isOnlyQuestion={notDeletedQuestions.length <= 0}
+                            isLastQuestion={question.displayId === notDeletedQuestions.length}
+                            canAddMoreQuestions={notDeletedQuestions.length < 10}
+                        />
+                    ))}
+                {isModalOpenLink && (
+                    <ModalLink
+                        isOpen={isModalOpenLink}
+                        onClose={() => setIsModalOpenLink(false)}
+                        link = {publishedLink || stateLink || 'https://ссылкиНет.ru'}
+                    />
+                )}
+                    {notDeletedQuestions.length < 10 && createType === 'anketa' && (
+                        <div className="add-question-placeholder">
+                            <span className="add-question-title">Добавить новый вопрос</span>
+                            <div className="question-type-buttons">
+                                <div className="q-type-btn" onClick={() => addNewQuestion(lastQuestionId, 'Открытый')}>
+                                    <span><img src={OpenQuest} alt="icons-open-question" className="q-type-icon-box" /></span>
+                                    <span className="q-type-label">Открытый</span>
+                                    <span className='tooltip'>
+                                        <button className='tooltip-toggle' type='button'>
+                                            <img src={InfoOutlined} alt="icons-info" className="q-type-info" />
+                                        </button>
+                                        <span className='tooltip-text'>Если нужен ответ <br /> в свободной форме</span>
+                                    </span>
+                                </div>
+                                <div className="q-type-btn" onClick={() => addNewQuestion(lastQuestionId, 'Закрытый')}>
+                                    <span><img src={CloseQuest} alt="icons-close-question" className="q-type-icon-box" /></span>
+                                    <span className="q-type-label">Закрытый</span>
+                                    <span className='tooltip'>
+                                        <button className='tooltip-toggle' type='button'>
+                                            <img src={InfoOutlined} alt="icons-info" className="q-type-info" />
+                                        </button>
+                                        <span className='tooltip-text'>Если нужно выбрать <br /> один вариант ответа</span>
+                                    </span>
+                                </div>
+                                <div className="q-type-btn" onClick={() => addNewQuestion(lastQuestionId, 'Множественный выбор')}>
+                                    <span><img src={MultiQuest} alt="icons-multi-question" className="q-type-icon-box" /></span>
+                                    <span className="q-type-label">Несколько</span>
+                                    <span className='tooltip'>
+                                        <button className='tooltip-toggle' type='button'>
+                                            <img src={InfoOutlined} alt="icons-info" className="q-type-info" />
+                                        </button>
+                                        <span className='tooltip-text'>Если нужно выбрать <br /> один или несколько <br /> вариантов ответа</span>
+                                    </span>
+                                </div>
+                                <div className="q-type-btn" onClick={() => addNewQuestion(lastQuestionId, 'Шкала')}>
+                                    <span><img src={ShkalaQuest} alt="icons-shkala-question" className="q-type-icon-box" /></span>
+                                    <span className="q-type-label">Шкала</span>
+                                    <span className='tooltip'>
+                                        <button className='tooltip-toggle' type='button'>
+                                            <img src={InfoOutlined} alt="icons-info" className="q-type-info" />
+                                        </button>
+                                        <span className='tooltip-text'>Если нужно оценить <br /> высказывание по шкале</span>
+                                    </span>
+                                </div>
+                            </div>
+                        </div>
 
-  return (
-    <div className="charts-list">
-      {chartData.map((item, index) => (
-        <div
-          key={index}
-          className="chart-container"
-          style={{
-            height:
-              item.type === 'bar'
-                ? Math.max(300, item.labels.length * 30) // Динамическая высота для bar-чартов
-                : 300
-          }}
-        >
-          <canvas
-            ref={el => (chartRefs.current[index] = el)}
-            className="chart"
-          />
+                    )}
+                    {createType === 'anketa' && (
+                        <div className="ButtonSaveContainer">
+                            <button onClick={handleSaveClick} className="ButtonSave" type="button" disabled={isLoading}>
+                                <img src={TickIcon} alt="icons-tick-question" className="TickIcon" />
+                                {isLoading ? 'Отправка...' : 'СОХРАНИТЬ'}
+                            </button>
+                        </div>
+                    )}
+                </form>
+
+                {isModalOpen && (
+                    <div className='modal'>
+                        <div className='modal-content'>
+                            <div className='modal-text'>
+                                <div style={{ fontSize: '20px', marginBottom: '20px' }}>Анкета создана!<br /> </div>
+                                Чтобы анкета стала доступной для <br />
+                                прохождения, её необходимо опубликовать
+                            </div>
+                            <div className='button-modal'>
+                                <button className='notPublishButton' onClick={cancelSave}>Не публиковать</button>
+                                {/* <button className='PublishButton' onClick={confirmSave}>Опубликовать</button> */}
+                                <button
+                                    className='PublishButton'
+                                    onClick={async () => {
+                                        const link = await confirmSave();
+                                        if (link) {
+                                            setPublishedLink(link);
+                                            setIsModalOpenLink(true);
+                                        }
+                                    }}
+                                >
+                                    Опубликовать
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                )}
+            </div>
         </div>
-      ))}
-    </div>
-
-    {/* Встроенные стили (можно вынести в CSS-файл) */}
-    <style jsx>{`
-      .charts-list {
-        display: flex;
-        flex-direction: column;
-        gap: 24px;
-        width: 100%;
-        margin-top: 20px;
-      }
-
-      .chart-container {
-        width: 100%;
-        position: relative;
-        border-radius: 8px;
-        background: #f9f9f9;
-        padding: 16px;
-        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-        overflow: hidden;
-      }
-
-      .chart {
-        width: 100% !important;
-        height: 100% !important;
-      }
-
-      .no-data-message {
-        text-align: center;
-        color: #666;
-        font-size: 16px;
-        margin: 20px 0;
-        padding: 20px;
-        background: #f5f5f5;
-        border-radius: 8px;
-      }
-
-      @media (max-width: 768px) {
-        .charts-list {
-          gap: 16px;
-        }
-        .chart-container {
-          padding: 12px;
-        }
-      }
-    `}</style>
-  );
+    );
 };
 
-export default GraphComponent;
+export default SurveyPage;
